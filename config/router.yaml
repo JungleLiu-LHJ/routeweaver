@@ -1,0 +1,82 @@
+storage:
+  sqlitePath: .data/hermes-router.sqlite
+
+security:
+  allowlist: []
+  internalPushToken: change-this-internal-push-token
+
+backends:
+  endpointByRef:
+    hermes-news: http://127.0.0.1:8788/hermes-router/message
+    hermes-life: http://127.0.0.1:8789/hermes-router/message
+    hermes-finance: http://127.0.0.1:8790/hermes-router/message
+
+wechat:
+  bindingTokenTtlSeconds: 600
+  mode: clawbot
+  clawbot:
+    enabled: true
+    sessionPath: .data/clawbot-session.json
+    pollIntervalMs: 1000
+    loginTimeoutMs: 480000
+    longPollTimeoutMs: 35000
+    botType: "3"
+    botAgent: HermesRouter/0.1.0
+
+router:
+  defaultMainAgentId: life
+  stickyAgentWindowMinutes: 180
+  classifier:
+    enabled: true
+    provider: openai-compatible
+    model: gpt-4.1-mini
+    timeoutMs: 2500
+    maxRecentTurns: 6
+    minConfidenceDirect: 0.85
+    minConfidenceKeepActive: 0.7
+    minMarginDirect: 0.15
+    clarifyBelow: 0.55
+
+agents:
+  - agentId: news
+    displayName: News Hermes
+    description: News, current events, market headlines, public information lookup, briefings, and external-world updates.
+    backendKind: hermes
+    backendRef: hermes-news
+    aliases: [news]
+    capabilityTags: [news, current-events, briefing]
+    keywordHints: [news, headline, current event, briefing, market, update]
+    scenarioHints: [news briefing, current events, public information lookup, market headlines]
+    pushCategories: [news_alert]
+    listed: true
+    enabled: true
+    riskLevel: low
+
+  - agentId: life
+    displayName: Life Hermes
+    description: Personal life planning, travel, routines, health, home, relationships, errands, daily tasks, and personal logistics.
+    backendKind: hermes
+    backendRef: hermes-life
+    aliases: [life, travel, trip]
+    capabilityTags: [life, travel, routines, personal]
+    keywordHints: [flight, hotel, itinerary, routine, health, home, errand, travel]
+    scenarioHints: [trip planning, daily routine, personal logistics, life planning]
+    pushCategories: [life_alert, travel_alert]
+    listed: true
+    enabled: true
+    isMain: true
+    riskLevel: low
+
+  - agentId: finance
+    displayName: Finance Hermes
+    description: Personal finance, budgets, spending, bills, subscriptions, income, expense review, tax preparation, and investment tracking.
+    backendKind: hermes
+    backendRef: hermes-finance
+    aliases: [finance, finances]
+    capabilityTags: [finance, budgeting, expenses, investments]
+    keywordHints: [budget, bill, spending, subscription, income, expense, tax, investment, money]
+    scenarioHints: [monthly budget, bill tracking, expense review, portfolio review, tax preparation]
+    pushCategories: [finance_alert]
+    listed: true
+    enabled: true
+    riskLevel: medium
