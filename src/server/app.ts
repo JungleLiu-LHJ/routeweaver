@@ -44,6 +44,10 @@ function createBackend(agent: AgentProfile, endpointByRef: Record<string, string
   }
 }
 
+function effectiveBackendUrl(agent: AgentProfile, endpointByRef: Record<string, string>): string | undefined {
+  return agent.backendUrl ?? (agent.backendRef ? endpointByRef[agent.backendRef] : undefined);
+}
+
 function isConfirmText(text: string): boolean {
   return /^(确认|同意|继续|yes|y|confirm|ok)$/i.test(text.trim());
 }
@@ -139,11 +143,45 @@ export function createApp(config: RouterConfig) {
       agentId: agent.agentId,
       displayName: agent.displayName,
       backendKind: agent.backendKind,
-      aliases: agent.aliases
+      aliases: agent.aliases,
+      backendUrl: effectiveBackendUrl(agent, config.backends.endpointByRef),
+      restartUrl: agent.restartUrl ?? null,
+      healthUrl: agent.healthUrl ?? null,
+      supportsRestart: Boolean(agent.restartUrl || effectiveBackendUrl(agent, config.backends.endpointByRef)),
+      supportsHealthCheck: Boolean(agent.healthUrl || effectiveBackendUrl(agent, config.backends.endpointByRef))
     }))
   }));
 
   app.post("/admin/reload-config", async () => ({ reloaded: false, note: "Use process restart or inject a reloadable config provider." }));
+
+  app.post("/admin/agents/:agentId/restart", async (request, reply) => {
+    if (authHeader(request) !== `Bearer ${config.security.internalPushToken}`) {
+      reply.code(401);
+      return { ok: false, reason: "unauthorized" };
+    }
+
+    const { agentId } = request.params as { agentId: string };
+    const agent = config.agents.find((item) => item.agentId === agentId && item.enabled);
+    if (!agent) {
+      reply.code(404);
+      return { ok: false, reason: "agent_not_found" };
+    }
+
+    const backend = backendByAgentId.get(agent.agentId);
+    if (!backend?.restartAgent) {
+      reply.code(501);
+      return { ok: false, reason: "restart_not_supported" };
+    }
+
+    const restarted = await backend.restartAgent(agent);
+    if (!restarted) {
+      reply.code(400);
+      return { ok: false, reason: "restart_failed" };
+    }
+
+    await repository.writeAudit("agent.restart", { agentId: agent.agentId, backendKind: agent.backendKind });
+    return { ok: true, agentId: agent.agentId };
+  });
 
   app.post("/admin/bindings/wechat", async (request) => {
     const payload = request.body as { userId?: string; routerUserId?: string };
@@ -389,7 +427,7 @@ export function createApp(config: RouterConfig) {
       await repository.savePendingConfirmation({
         conversationId: inbound.conversationId,
         agentId: agent.agentId,
-        backendRef: agent.backendRef,
+        backendRef: agent.backendRef ?? agent.backendUrl ?? agent.agentId,
         confirmationRef: response.confirmationRef ?? `${agent.agentId}:${Date.now()}`,
         prompt,
         originalMessage: inbound.text,

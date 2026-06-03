@@ -7,8 +7,10 @@ export class HermesBackendAdapter extends CustomHttpBackendAdapter {
   readonly kind = "hermes";
 
   async send(request: BackendRequest): Promise<BackendResponse> {
-    const endpoint = this.endpointFor(request.agent.backendRef);
-    const adapterToken = process.env.HERMES_ROUTER_ADAPTER_TOKEN ?? process.env.ROUTER_HERMES_ADAPTER_TOKEN;
+    const endpoint = this.endpointForAgent(request.agent);
+    const adapterToken = process.env.ROUTEWEAVER_HERMES_ADAPTER_TOKEN
+      ?? process.env.HERMES_ROUTER_ADAPTER_TOKEN
+      ?? process.env.ROUTER_HERMES_ADAPTER_TOKEN;
     const headers: Record<string, string> = {
       "content-type": "application/json"
     };
@@ -70,13 +72,5 @@ export class HermesBackendAdapter extends CustomHttpBackendAdapter {
       confirmationRef: body.confirmationRef ?? undefined,
       raw: body
     };
-  }
-
-  private endpointFor(backendRef: string): string {
-    const endpoint = this.endpointByRef[backendRef];
-    if (!endpoint) {
-      throw new Error(`missing endpoint for backendRef "${backendRef}"`);
-    }
-    return endpoint;
   }
 }

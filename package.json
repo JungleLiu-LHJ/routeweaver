@@ -1,8 +1,8 @@
 {
-  "name": "hermes-router",
+  "name": "routeweaver",
   "version": "0.1.0",
   "type": "module",
-  "description": "Standalone channel router for Hermes, OpenClaw, ACP, and custom agent backends.",
+  "description": "Open agent router for Hermes, OpenClaw, ACP coding agents, and custom HTTP backends.",
   "engines": {
     "node": ">=22.0.0"
   },

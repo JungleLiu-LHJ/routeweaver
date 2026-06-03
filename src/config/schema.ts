@@ -69,7 +69,10 @@ const agentProfileSchema = z.object({
   displayName: z.string().min(1),
   description: z.string().min(1),
   backendKind: backendKindSchema,
-  backendRef: z.string().min(1),
+  backendRef: z.string().min(1).optional(),
+  backendUrl: z.string().url().optional(),
+  restartUrl: z.string().url().optional(),
+  healthUrl: z.string().url().optional(),
   aliases: z.array(z.string().min(1)).default([]),
   capabilityTags: z.array(z.string().min(1)).default([]),
   keywordHints: z.array(z.string().min(1)).default([]),
@@ -79,6 +82,14 @@ const agentProfileSchema = z.object({
   listed: z.boolean(),
   isMain: z.boolean().optional(),
   riskLevel: riskLevelSchema
+}).superRefine((value, ctx) => {
+  if (!value.backendRef && !value.backendUrl) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "agent must define backendUrl or backendRef",
+      path: ["backendRef"]
+    });
+  }
 });
 
 export const routerConfigSchema = z.object({

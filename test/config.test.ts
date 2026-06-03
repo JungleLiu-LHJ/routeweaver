@@ -127,4 +127,23 @@ describe("routerConfigSchema", () => {
     const parsed = routerConfigSchema.parse(baseConfig);
     expect(parsed.router.stickyAgentWindowMinutes).toBe(180);
   });
+
+  it("accepts inline backend urls without backendRef", () => {
+    const parsed = routerConfigSchema.parse({
+      ...baseConfig,
+      agents: [
+        {
+          ...baseConfig.agents[0],
+          backendRef: undefined,
+          backendUrl: "http://127.0.0.1:8788/hermes-router/message",
+          restartUrl: "http://127.0.0.1:8788/hermes-router/restart",
+          healthUrl: "http://127.0.0.1:8788/hermes-router/health"
+        },
+        baseConfig.agents[1]
+      ]
+    });
+
+    expect(parsed.agents[0]?.backendUrl).toBe("http://127.0.0.1:8788/hermes-router/message");
+    expect(parsed.agents[0]?.backendRef).toBeUndefined();
+  });
 });

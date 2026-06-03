@@ -1,15 +1,9 @@
 storage:
-  sqlitePath: .data/hermes-router.sqlite
+  sqlitePath: .data/routeweaver.sqlite
 
 security:
   allowlist: []
   internalPushToken: change-this-internal-push-token
-
-backends:
-  endpointByRef:
-    hermes-news: http://127.0.0.1:8788/hermes-router/message
-    hermes-life: http://127.0.0.1:8789/hermes-router/message
-    hermes-finance: http://127.0.0.1:8790/hermes-router/message
 
 wechat:
   bindingTokenTtlSeconds: 600
@@ -24,7 +18,7 @@ wechat:
     botAgent: HermesRouter/0.1.0
 
 router:
-  defaultMainAgentId: life
+  defaultMainAgentId: assistant
   stickyAgentWindowMinutes: 180
   classifier:
     enabled: true
@@ -38,45 +32,51 @@ router:
     clarifyBelow: 0.55
 
 agents:
-  - agentId: news
-    displayName: News Hermes
-    description: News, current events, market headlines, public information lookup, briefings, and external-world updates.
+  - agentId: assistant
+    displayName: Hermes Assistant
+    description: General assistant for personal planning, daily help, and long-running async tasks.
     backendKind: hermes
-    backendRef: hermes-news
-    aliases: [news]
-    capabilityTags: [news, current-events, briefing]
-    keywordHints: [news, headline, current event, briefing, market, update]
-    scenarioHints: [news briefing, current events, public information lookup, market headlines]
-    pushCategories: [news_alert]
-    listed: true
-    enabled: true
-    riskLevel: low
-
-  - agentId: life
-    displayName: Life Hermes
-    description: Personal life planning, travel, routines, health, home, relationships, errands, daily tasks, and personal logistics.
-    backendKind: hermes
-    backendRef: hermes-life
-    aliases: [life, travel, trip]
-    capabilityTags: [life, travel, routines, personal]
-    keywordHints: [flight, hotel, itinerary, routine, health, home, errand, travel]
-    scenarioHints: [trip planning, daily routine, personal logistics, life planning]
-    pushCategories: [life_alert, travel_alert]
+    backendUrl: http://127.0.0.1:8788/hermes-router/message
+    restartUrl: http://127.0.0.1:8788/hermes-router/restart
+    healthUrl: http://127.0.0.1:8788/health
+    aliases: [main, assistant]
+    capabilityTags: [assistant, planning, tasks]
+    keywordHints: [plan, schedule, todo, reminder, travel, routine]
+    scenarioHints: [daily planning, general assistant, async task handling]
+    pushCategories: [assistant_alert]
     listed: true
     enabled: true
     isMain: true
     riskLevel: low
 
-  - agentId: finance
-    displayName: Finance Hermes
-    description: Personal finance, budgets, spending, bills, subscriptions, income, expense review, tax preparation, and investment tracking.
-    backendKind: hermes
-    backendRef: hermes-finance
-    aliases: [finance, finances]
-    capabilityTags: [finance, budgeting, expenses, investments]
-    keywordHints: [budget, bill, spending, subscription, income, expense, tax, investment, money]
-    scenarioHints: [monthly budget, bill tracking, expense review, portfolio review, tax preparation]
-    pushCategories: [finance_alert]
+  - agentId: coder
+    displayName: ACP Coding Agent
+    description: Coding, debugging, code review, implementation, and tool-using software tasks.
+    backendKind: acp
+    backendUrl: http://127.0.0.1:8790/message
+    restartUrl: http://127.0.0.1:8790/restart
+    healthUrl: http://127.0.0.1:8790/health
+    aliases: [code, coding, dev]
+    capabilityTags: [coding, debugging, implementation]
+    keywordHints: [bug, code, test, refactor, fix, implement]
+    scenarioHints: [debugging, code generation, code review, repo work]
+    pushCategories: [coding_alert]
+    listed: true
+    enabled: true
+    riskLevel: medium
+
+  - agentId: ops
+    displayName: OpenClaw Ops Agent
+    description: Operations, workflows, external connectors, and multi-step automation tasks.
+    backendKind: openclaw
+    backendUrl: http://127.0.0.1:8789/message
+    restartUrl: http://127.0.0.1:8789/restart
+    healthUrl: http://127.0.0.1:8789/health
+    aliases: [ops, automation]
+    capabilityTags: [ops, automation, connectors]
+    keywordHints: [deploy, workflow, automation, integration, connector]
+    scenarioHints: [ops workflow, automation task, connector orchestration]
+    pushCategories: [ops_alert]
     listed: true
     enabled: true
     riskLevel: medium

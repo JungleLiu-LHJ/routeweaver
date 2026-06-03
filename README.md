@@ -1,43 +1,69 @@
-# hermes-router
+# RouteWeaver
 
-`hermes-router` is a standalone TypeScript service for:
+`RouteWeaver` is an open-source agent router for teams that want one clean entrypoint in front of multiple agent runtimes.
 
-- receiving channel messages
-- routing them to the right agent or Hermes profile
-- dispatching to Hermes, ACP, OpenClaw, or custom HTTP backends
-- handling binding, push delivery, tasks, and audit records
+It gives first-class support to:
 
-This repo is structured to be published as a public example of an agent-routing gateway.
+- `Hermes`
+- `OpenClaw`
+- `ACP` coding agents
 
-## Highlights
+It also works with generic HTTP agents.
 
-- Config-driven agent registry in [`config/router.yaml`](./config/router.yaml)
-- Rule-based plus LLM-assisted routing
-- Fastify HTTP server with public, admin, and internal endpoints
-- SQLite persistence for bindings, tasks, conversation state, and audit events
-- WeChat / ClawBot oriented ingress and outbound delivery flow
-- Backend abstraction for Hermes, ACP, OpenClaw, and generic HTTP agents
+[中文 README](./README.zh-CN.md)
 
-## Project Layout
+## Why this exists
 
-```text
-src/
-  backends/       backend adapters
-  channels/       inbound/outbound channel integrations
-  classifier/     LLM classifier contract, prompt, parser, providers
-  config/         config loader and schema
-  domain/         core types and commands
-  observability/  logging and audit hooks
-  push/           internal push delivery
-  router/         routing policy and orchestration
-  server/         Fastify app and bootstrap
-  store/          SQLite repository and schema
-  tasks/          async task state handling
-test/             vitest coverage for router and backend behavior
-docs/             technical notes and usage docs
+Most teams end up with several agents:
+
+- a Hermes assistant for everyday help
+- an OpenClaw agent for workflows and connectors
+- an ACP coding agent for implementation and debugging
+
+What they usually do not have is a single routing layer that can:
+
+- accept messages from one ingress surface
+- decide which agent should handle the turn
+- keep short conversation state
+- manage async tasks and push callbacks
+- expose a unified control plane for restarting agents
+
+That is what RouteWeaver does.
+
+## What it supports
+
+- Multi-agent routing with explicit aliases, keyword hints, and optional LLM classification
+- Hermes backends through `/hermes-router/message`
+- OpenClaw backends as routable agents
+- ACP coding agents as routable agents
+- Generic HTTP backends
+- WeChat / ClawBot oriented ingress
+- SQLite-backed bindings, tasks, conversation state, and audit records
+- Admin restart hooks for agents that expose a restart endpoint
+
+## Easy configuration
+
+The default configuration style is intentionally direct: each agent can define its own `backendUrl`, `restartUrl`, and `healthUrl`.
+
+```yaml
+agents:
+  - agentId: coder
+    backendKind: acp
+    backendUrl: http://127.0.0.1:8790/message
+    restartUrl: http://127.0.0.1:8790/restart
+    healthUrl: http://127.0.0.1:8790/health
 ```
 
-## Quick Start
+If you already have older configs, `backendRef + backends.endpointByRef` still works.
+
+## Quick start
+
+Requirements:
+
+- Node.js 22+
+- one or more reachable agent backends
+
+Run locally:
 
 ```bash
 npm install
@@ -46,60 +72,147 @@ npm run check
 npm run dev
 ```
 
-Default config path is [`config/router.yaml`](./config/router.yaml).
+The default config file is [`config/router.yaml`](./config/router.yaml).
 
-## Configuration
+## Included example setup
 
-The sample config ships with three example Hermes backends:
+The sample config shipped in this repo already shows all three major backend types:
+
+- `assistant`: a `Hermes` main assistant
+- `coder`: an `ACP` coding agent
+- `ops`: an `OpenClaw` automation agent
+
+That makes the repo usable as a public starter instead of a Hermes-only demo.
+
+## Minimal config example
 
 ```yaml
-backends:
-  endpointByRef:
-    hermes-news: http://127.0.0.1:8788/hermes-router/message
-    hermes-life: http://127.0.0.1:8789/hermes-router/message
-    hermes-finance: http://127.0.0.1:8790/hermes-router/message
+storage:
+  sqlitePath: .data/routeweaver.sqlite
+
+security:
+  allowlist: []
+  internalPushToken: change-this-internal-push-token
+
+router:
+  defaultMainAgentId: assistant
+  stickyAgentWindowMinutes: 180
+  classifier:
+    enabled: true
+    provider: openai-compatible
+    model: gpt-4.1-mini
+    timeoutMs: 2500
+    maxRecentTurns: 6
+    minConfidenceDirect: 0.85
+    minConfidenceKeepActive: 0.7
+    minMarginDirect: 0.15
+    clarifyBelow: 0.55
+
+agents:
+  - agentId: assistant
+    displayName: Hermes Assistant
+    description: General assistant for planning and async tasks.
+    backendKind: hermes
+    backendUrl: http://127.0.0.1:8788/hermes-router/message
+    restartUrl: http://127.0.0.1:8788/hermes-router/restart
+    healthUrl: http://127.0.0.1:8788/health
+    aliases: [main, assistant]
+    capabilityTags: [assistant, planning]
+    keywordHints: [plan, travel, reminder]
+    pushCategories: [assistant_alert]
+    listed: true
+    enabled: true
+    isMain: true
+    riskLevel: low
+
+  - agentId: coder
+    displayName: ACP Coding Agent
+    description: Coding, debugging, and implementation.
+    backendKind: acp
+    backendUrl: http://127.0.0.1:8790/message
+    restartUrl: http://127.0.0.1:8790/restart
+    healthUrl: http://127.0.0.1:8790/health
+    aliases: [code, coding, dev]
+    capabilityTags: [coding, debugging]
+    keywordHints: [bug, fix, test, refactor]
+    pushCategories: [coding_alert]
+    listed: true
+    enabled: true
+    riskLevel: medium
+
+  - agentId: ops
+    displayName: OpenClaw Ops Agent
+    description: Automation, workflows, and integrations.
+    backendKind: openclaw
+    backendUrl: http://127.0.0.1:8789/message
+    restartUrl: http://127.0.0.1:8789/restart
+    healthUrl: http://127.0.0.1:8789/health
+    aliases: [ops, automation]
+    capabilityTags: [ops, automation]
+    keywordHints: [deploy, workflow, integration]
+    pushCategories: [ops_alert]
+    listed: true
+    enabled: true
+    riskLevel: medium
 ```
 
-Before using this in any real environment, change:
+## Restarting agents
 
-- `security.internalPushToken`
-- backend URLs
-- classifier model / API settings
-- WeChat / ClawBot session paths and operational settings
-
-Classifier routing is enabled through environment variables such as `ROUTER_CLASSIFIER_API_KEY` and optionally `ROUTER_CLASSIFIER_BASE_URL`.
-
-## Runtime Model
-
-Typical message path:
-
-```text
-External channel -> hermes-router -> selected backend agent -> async task / push callback
-```
-
-The router submits backend work through `/hermes-router/message` style endpoints and expects long-running work to complete asynchronously through:
-
-```text
-POST /internal/tasks/action
-POST /internal/push
-```
-
-## Webhook Example
+If an agent exposes `restartUrl`, RouteWeaver can restart it through one admin API:
 
 ```bash
-curl -s -X POST "http://127.0.0.1:3000/webhooks/clawbot?token=$INTERNAL_PUSH_TOKEN" \
-  -H "content-type: application/json" \
-  -d '{"openid":"wechat-user-id","text":"/news today","messageId":"m1"}'
+curl -X POST http://127.0.0.1:3000/admin/agents/coder/restart \
+  -H "authorization: Bearer change-this-internal-push-token"
 ```
 
-## Publish Notes
+This matters in real deployments because you do not want a different operational interface for every agent runtime.
 
-This exported copy intentionally excludes local state and build artifacts:
+## Useful endpoints
 
-- `node_modules/`
-- `dist/`
-- `.data/`
-- `.runtime/`
-- `logs/`
+- `GET /healthz`
+- `GET /readyz`
+- `GET /admin/agents`
+- `POST /admin/agents/:agentId/restart`
+- `POST /webhooks/wechat`
+- `POST /webhooks/clawbot`
+- `POST /internal/push`
+- `POST /internal/tasks/action`
 
-If you want to publish this repo, initialize git inside this folder and add your GitHub remote.
+## Routing behavior
+
+Route decisions are made from:
+
+- explicit slash commands such as `/code` or `/ops`
+- agent keyword hints and capability tags
+- optional LLM classifier output
+
+So users can either force a target agent or let the router choose.
+
+## Project layout
+
+```text
+src/
+  backends/       backend adapters for Hermes, OpenClaw, ACP, and HTTP agents
+  channels/       inbound/outbound channel integrations
+  classifier/     LLM classifier contract, prompt, parser, providers
+  config/         config loader and validation
+  domain/         core router types and command parsing
+  observability/  logging and audit hooks
+  push/           internal push delivery
+  router/         routing policy and orchestration
+  server/         Fastify app and bootstrap
+  store/          SQLite repository and schema
+  tasks/          async task handling
+test/             routing and backend tests
+docs/             technical notes
+```
+
+## Documentation
+
+- Chinese README: [README.zh-CN.md](./README.zh-CN.md)
+- Technical design: [docs/hermes-router-technical-design.md](./docs/hermes-router-technical-design.md)
+- ClawBot usage: [docs/clawbot-usage.zh-CN.md](./docs/clawbot-usage.zh-CN.md)
+
+## License
+
+This project is released under the `MIT` license. See [LICENSE](./LICENSE).

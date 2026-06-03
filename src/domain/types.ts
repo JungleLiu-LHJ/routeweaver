@@ -6,7 +6,10 @@ export interface AgentProfile {
   displayName: string;
   description: string;
   backendKind: BackendKind;
-  backendRef: string;
+  backendRef?: string;
+  backendUrl?: string;
+  restartUrl?: string;
+  healthUrl?: string;
   aliases: string[];
   capabilityTags: string[];
   keywordHints: string[];

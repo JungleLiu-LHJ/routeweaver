@@ -34,7 +34,7 @@ function makeConfig(): RouterConfig {
         displayName: "Main",
         description: "fallback",
         backendKind: "custom-http",
-        backendRef: "main",
+        backendUrl: "http://backend/main",
         aliases: ["main"],
         capabilityTags: ["general"],
         keywordHints: [],
@@ -47,9 +47,11 @@ function makeConfig(): RouterConfig {
       {
         agentId: "coding",
         displayName: "Coding",
-        description: "debugging",
-        backendKind: "custom-http",
-        backendRef: "codex",
+        description: "ACP coding agent for debugging and implementation",
+        backendKind: "acp",
+        backendUrl: "http://backend/codex/message",
+        restartUrl: "http://backend/codex/restart",
+        healthUrl: "http://backend/codex/health",
         aliases: ["code"],
         capabilityTags: ["coding"],
         keywordHints: ["bug"],
@@ -63,7 +65,8 @@ function makeConfig(): RouterConfig {
         displayName: "Finance Hermes",
         description: "finance and budget",
         backendKind: "hermes",
-        backendRef: "finance",
+        backendUrl: "http://backend/finance",
+        restartUrl: "http://backend/finance/restart",
         aliases: ["finance"],
         capabilityTags: ["finance"],
         keywordHints: ["budget"],
@@ -196,6 +199,34 @@ describe("wechat webhook integration", () => {
       payload: wechat("/tasks", "m-hermes-3")
     });
     expect(completed.json().content).toContain("finance completed hermes-task-1");
+    await app.close();
+  });
+
+  it("restarts a configured agent through the admin endpoint", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/restart")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({ content: "ok" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const app = createApp(makeConfig());
+
+    const restarted = await app.inject({
+      method: "POST",
+      url: "/admin/agents/coding/restart",
+      headers: { authorization: "Bearer test-internal-push-token" }
+    });
+
+    expect(restarted.statusCode).toBe(200);
+    expect(restarted.json()).toMatchObject({ ok: true, agentId: "coding" });
+    expect(fetchMock).toHaveBeenCalledWith("http://backend/codex/restart", { method: "POST" });
     await app.close();
   });
 

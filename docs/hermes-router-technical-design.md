@@ -1,6 +1,8 @@
-# Hermes Router Technical Design
+# RouteWeaver Technical Design
 
-`hermes-router` is a standalone TypeScript + Node.js 22 service that fronts user-facing channels, decides which configured agent should handle a message, and dispatches the message to independent backends such as Hermes profiles, ACP, or custom HTTP agents.
+`RouteWeaver` is a standalone TypeScript + Node.js 22 service that fronts user-facing channels, decides which configured agent should handle a message, and dispatches the message to independent backends such as Hermes profiles, OpenClaw, ACP, or custom HTTP agents.
+
+In the current codebase, some protocol paths still use the historical `/hermes-router/*` naming for Hermes compatibility.
 
 The important boundary is directional:
 

@@ -107,4 +107,20 @@ describe("HermesBackendAdapter", () => {
     await pending;
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("prefers inline backendUrl when provided on the agent", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      content: "ok"
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = new HermesBackendAdapter({});
+    const request = makeRequest();
+    request.agent.backendRef = undefined;
+    request.agent.backendUrl = "http://127.0.0.1:9000/hermes-router/message";
+
+    await adapter.send(request);
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:9000/hermes-router/message");
+  });
 });
