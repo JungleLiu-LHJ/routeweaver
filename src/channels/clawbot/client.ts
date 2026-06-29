@@ -1,15 +1,22 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import {
+  downloadAndDecryptBuffer,
+  downloadPlainCdnBuffer
+} from "@tencent-weixin/openclaw-weixin/dist/src/cdn/pic-decrypt.js";
 
 const DEFAULT_API_BASE_URL = "https://ilinkai.weixin.qq.com";
+const DEFAULT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 const DEFAULT_BOT_AGENT = "HermesRouter/0.1.0";
 const DEFAULT_BOT_TYPE = "3";
 const DEFAULT_LOGIN_TIMEOUT_MS = 480_000;
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const MAX_QR_REFRESH_COUNT = 3;
+const CLAWBOT_MEDIA_DIR = path.join(os.tmpdir(), "routeweaver-clawbot-media");
 
 const require = createRequire(import.meta.url);
 
@@ -61,6 +68,13 @@ export interface ClawBotInboundEvent {
   messageId: string;
   text: string;
   contextToken?: string;
+  inputType: "text" | "image" | "voice";
+  media?: {
+    mediaId?: string;
+    url?: string;
+    format?: string;
+    recognitionText?: string;
+  };
   raw: WeixinMessage;
 }
 
@@ -119,10 +133,30 @@ interface WeixinTextItem {
   text?: string;
 }
 
+interface WeixinCDNMedia {
+  full_url?: string;
+  encrypt_query_param?: string;
+  aes_key?: string;
+}
+
+interface WeixinVoiceItem {
+  media?: WeixinCDNMedia;
+  encode_type?: number;
+  text?: string;
+}
+
+interface WeixinImageItem {
+  media?: WeixinCDNMedia;
+  aeskey?: string;
+  url?: string;
+}
+
 interface WeixinMessageItem {
   type?: number;
   msg_id?: string;
   text_item?: WeixinTextItem;
+  voice_item?: WeixinVoiceItem;
+  image_item?: WeixinImageItem;
 }
 
 interface WeixinMessage {
@@ -167,14 +201,73 @@ function randomWechatUin(): string {
 
 function normalizeText(message: WeixinMessage): string {
   return (message.item_list ?? [])
-    .map((item) => item.text_item?.text?.trim() ?? "")
+    .map((item) => {
+      if (item.type === 3) {
+        return item.voice_item?.text?.trim() ?? "";
+      }
+      return item.text_item?.text?.trim() ?? "";
+    })
     .filter(Boolean)
     .join("\n")
     .trim();
 }
 
+function voiceFormat(encodeType: number | undefined): string | undefined {
+  switch (encodeType) {
+    case 5:
+      return "amr";
+    case 6:
+      return "silk";
+    case 7:
+      return "mp3";
+    case 8:
+      return "ogg";
+    default:
+      return undefined;
+  }
+}
+
+function extractInboundMetadata(message: WeixinMessage): Pick<ClawBotInboundEvent, "inputType" | "media"> {
+  for (const item of message.item_list ?? []) {
+    if (item.type === 3) {
+      return {
+        inputType: "voice",
+        media: {
+          mediaId: item.msg_id ?? (message.message_id ? String(message.message_id) : undefined),
+          url: item.voice_item?.media?.full_url,
+          format: voiceFormat(item.voice_item?.encode_type),
+          recognitionText: item.voice_item?.text?.trim() || undefined
+        }
+      };
+    }
+    if (item.type === 2) {
+      return {
+        inputType: "image",
+        media: {
+          mediaId: item.msg_id ?? (message.message_id ? String(message.message_id) : undefined),
+          url: item.image_item?.url ?? item.image_item?.media?.full_url
+        }
+      };
+    }
+  }
+  return { inputType: "text" };
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function inferRemoteExtension(url: string | undefined, fallback = ".jpg"): string {
+  if (!url) {
+    return fallback;
+  }
+  try {
+    const parsed = new URL(url);
+    const ext = path.extname(parsed.pathname);
+    return ext || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export class ClawBotClient {
@@ -248,6 +341,82 @@ export class ClawBotClient {
 
   async clearSession(): Promise<void> {
     await fs.rm(this.sessionPath, { force: true });
+  }
+
+  private async persistInboundMedia(buffer: Buffer, extension: string): Promise<string> {
+    await fs.mkdir(CLAWBOT_MEDIA_DIR, { recursive: true });
+    const suffix = extension.startsWith(".") ? extension : `.${extension}`;
+    const filePath = path.join(CLAWBOT_MEDIA_DIR, `${Date.now()}-${crypto.randomUUID()}${suffix}`);
+    await fs.writeFile(filePath, buffer);
+    return filePath;
+  }
+
+  private async downloadImageToLocalPath(item: WeixinImageItem | undefined): Promise<string | undefined> {
+    if (!item) {
+      return undefined;
+    }
+
+    const media = item.media;
+    if (media?.encrypt_query_param || media?.full_url) {
+      const aesKeyBase64 = item.aeskey
+        ? Buffer.from(item.aeskey, "hex").toString("base64")
+        : media.aes_key;
+      const imageBuffer = aesKeyBase64
+        ? await downloadAndDecryptBuffer(
+          media.encrypt_query_param ?? "",
+          aesKeyBase64,
+          DEFAULT_CDN_BASE_URL,
+          "routeweaver clawbot image",
+          media.full_url
+        )
+        : await downloadPlainCdnBuffer(
+          media.encrypt_query_param ?? "",
+          DEFAULT_CDN_BASE_URL,
+          "routeweaver clawbot image-plain",
+          media.full_url
+        );
+      return this.persistInboundMedia(imageBuffer, inferRemoteExtension(item.url ?? media.full_url));
+    }
+
+    const remoteUrl = item.url;
+    if (!remoteUrl?.startsWith("http://") && !remoteUrl?.startsWith("https://")) {
+      return undefined;
+    }
+    const response = await this.fetchImpl(remoteUrl, {
+      headers: {
+        "user-agent": this.botAgent
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`image download HTTP ${response.status}`);
+    }
+    const imageBuffer = Buffer.from(await response.arrayBuffer());
+    return this.persistInboundMedia(imageBuffer, inferRemoteExtension(remoteUrl));
+  }
+
+  private async materializeInboundMetadata(
+    message: WeixinMessage,
+    metadata: Pick<ClawBotInboundEvent, "inputType" | "media">
+  ): Promise<Pick<ClawBotInboundEvent, "inputType" | "media">> {
+    if (metadata.inputType !== "image" || !metadata.media) {
+      return metadata;
+    }
+    const imageItem = message.item_list?.find((item) => item.type === 2)?.image_item;
+    try {
+      const localPath = await this.downloadImageToLocalPath(imageItem);
+      if (!localPath) {
+        return metadata;
+      }
+      return {
+        ...metadata,
+        media: {
+          ...metadata.media,
+          url: localPath
+        }
+      };
+    } catch {
+      return metadata;
+    }
   }
 
   async startLogin(force = false): Promise<ClawBotLoginStartResult> {
@@ -412,7 +581,8 @@ export class ClawBotClient {
     for (const message of response.msgs ?? []) {
       const text = normalizeText(message);
       const fromUserId = message.from_user_id?.trim();
-      if (!fromUserId || !text) {
+      const metadata = await this.materializeInboundMetadata(message, extractInboundMetadata(message));
+      if (!fromUserId || (!text && metadata.inputType === "text")) {
         continue;
       }
 
@@ -427,6 +597,8 @@ export class ClawBotClient {
         messageId: String(message.message_id ?? message.client_id ?? crypto.randomUUID()),
         text,
         contextToken: message.context_token,
+        inputType: metadata.inputType,
+        media: metadata.media,
         raw: message
       });
     }

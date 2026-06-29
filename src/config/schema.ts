@@ -64,6 +64,30 @@ const wechatSchema = z.object({
   })
 });
 
+const heartbeatSchema = z.object({
+  enabled: z.boolean().default(false),
+  intervalMs: z.number().int().positive().default(30000)
+}).default({
+  enabled: false,
+  intervalMs: 30000
+});
+
+const agentHealthCheckSchema = z.object({
+  enabled: z.boolean().default(false),
+  healthUrl: z.string().url().optional(),
+  timeoutMs: z.number().int().positive().default(3000),
+  failureThreshold: z.number().int().positive().default(2),
+  restartCommand: z.string().min(1).optional(),
+  restartTimeoutMs: z.number().int().positive().default(15000),
+  restartCooldownMs: z.number().int().positive().default(60000)
+}).default({
+  enabled: false,
+  timeoutMs: 3000,
+  failureThreshold: 2,
+  restartTimeoutMs: 15000,
+  restartCooldownMs: 60000
+});
+
 const agentProfileSchema = z.object({
   agentId: z.string().min(1),
   displayName: z.string().min(1),
@@ -81,7 +105,8 @@ const agentProfileSchema = z.object({
   enabled: z.boolean(),
   listed: z.boolean(),
   isMain: z.boolean().optional(),
-  riskLevel: riskLevelSchema
+  riskLevel: riskLevelSchema,
+  healthCheck: agentHealthCheckSchema.optional()
 }).superRefine((value, ctx) => {
   if (!value.backendRef && !value.backendUrl) {
     ctx.addIssue({
@@ -111,7 +136,8 @@ export const routerConfigSchema = z.object({
   router: z.object({
     defaultMainAgentId: z.string().min(1),
     stickyAgentWindowMinutes: z.number().int().nonnegative().default(180),
-    classifier: classifierSchema
+    classifier: classifierSchema,
+    heartbeat: heartbeatSchema
   }),
   agents: z.array(agentProfileSchema)
 }).superRefine((value, ctx) => {

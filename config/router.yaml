@@ -20,6 +20,9 @@ wechat:
 router:
   defaultMainAgentId: assistant
   stickyAgentWindowMinutes: 180
+  heartbeat:
+    enabled: true
+    intervalMs: 30000
   classifier:
     enabled: true
     provider: openai-compatible
@@ -48,6 +51,14 @@ agents:
     enabled: true
     isMain: true
     riskLevel: low
+    healthCheck:
+      enabled: true
+      healthUrl: http://127.0.0.1:8788/health
+      timeoutMs: 3000
+      failureThreshold: 2
+      restartCommand: hermes gateway restart
+      restartTimeoutMs: 20000
+      restartCooldownMs: 60000
 
   - agentId: coder
     displayName: ACP Coding Agent
@@ -64,6 +75,14 @@ agents:
     listed: true
     enabled: true
     riskLevel: medium
+    healthCheck:
+      enabled: true
+      healthUrl: http://127.0.0.1:8790/health
+      timeoutMs: 3000
+      failureThreshold: 2
+      restartCommand: echo "replace with your coding agent restart command"
+      restartTimeoutMs: 20000
+      restartCooldownMs: 60000
 
   - agentId: ops
     displayName: OpenClaw Ops Agent
@@ -80,3 +99,11 @@ agents:
     listed: true
     enabled: true
     riskLevel: medium
+    healthCheck:
+      enabled: true
+      healthUrl: http://127.0.0.1:8789/health
+      timeoutMs: 3000
+      failureThreshold: 2
+      restartCommand: echo "replace with your ops agent restart command"
+      restartTimeoutMs: 20000
+      restartCooldownMs: 60000

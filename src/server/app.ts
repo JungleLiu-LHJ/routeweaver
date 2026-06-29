@@ -12,6 +12,7 @@ import type { RouterConfig } from "../config/schema.js";
 import type { AgentProfile, BackendResponse, InboundMessage, RouteDecision } from "../domain/types.js";
 import { RouterService } from "../router/service.js";
 import { PushService, type PushRequest } from "../push/service.js";
+import { AgentMonitor } from "./agent-monitor.js";
 import { SQLiteRouterRepository } from "../store/repositories.js";
 import { TaskService } from "../tasks/service.js";
 
@@ -86,19 +87,27 @@ function stringField(data: Record<string, unknown>, ...keys: string[]): string |
 function parseClawBotInbound(payload: unknown): InboundMessage {
   const data = payload as Record<string, unknown>;
   const userId = stringField(data, "FromUserName", "fromUserName", "openid", "openId", "userId", "user_id", "senderId", "sender_id", "chatId", "chat_id");
-  const text = stringField(data, "Content", "content", "text", "message", "msg");
+  const inputType = stringField(data, "inputType", "input_type");
+  const text = stringField(data, "Content", "content", "text", "message", "msg") ?? (inputType === "voice" ? "[voice]" : inputType === "image" ? "[image]" : undefined);
   if (!userId || !text) {
     throw new Error("invalid ClawBot payload");
   }
   const messageId = stringField(data, "MsgId", "msgId", "messageId", "message_id", "id") ?? `clawbot:${userId}:${Date.now()}`;
   const conversationId = stringField(data, "conversationId", "conversation_id", "chatId", "chat_id") ?? userId;
+  const media = data.media && typeof data.media === "object" ? data.media as Record<string, unknown> : undefined;
   return {
     channelId: "wechat",
     userId,
     text,
     externalMessageId: messageId,
     conversationId: `wechat:${conversationId}`,
-    inputType: "text"
+    inputType: inputType === "voice" || inputType === "image" || inputType === "text" ? inputType : "text",
+    media: media ? {
+      mediaId: stringField(media, "mediaId", "media_id", "msgId", "msg_id", "id"),
+      url: stringField(media, "url", "fullUrl", "full_url"),
+      format: stringField(media, "format", "mimeType", "mime_type"),
+      recognitionText: stringField(media, "recognitionText", "recognition_text", "text")
+    } : undefined
   };
 }
 
@@ -109,6 +118,13 @@ export function createApp(config: RouterConfig) {
   const outboundSender = createOutboundTextSender(config);
   const backendByAgentId = new Map(config.agents.map((agent) => [agent.agentId, createBackend(agent, config.backends.endpointByRef)]));
   const taskService = new TaskService(repository, backendByAgentId);
+  const agentMonitor = new AgentMonitor({
+    agents: config.agents,
+    endpointByRef: config.backends.endpointByRef,
+    heartbeat: config.router.heartbeat,
+    logger: app.log,
+    writeAudit: async (eventType, payload) => repository.writeAudit(eventType, payload)
+  });
   const pushService = new PushService(
     repository,
     outboundSender,
@@ -127,7 +143,12 @@ export function createApp(config: RouterConfig) {
     timeWindow: "1 minute"
   });
 
+  app.addHook("onReady", async () => {
+    agentMonitor.start();
+  });
+
   app.addHook("onClose", async () => {
+    agentMonitor.stop();
     repository.close();
   });
 
@@ -146,10 +167,16 @@ export function createApp(config: RouterConfig) {
       aliases: agent.aliases,
       backendUrl: effectiveBackendUrl(agent, config.backends.endpointByRef),
       restartUrl: agent.restartUrl ?? null,
-      healthUrl: agent.healthUrl ?? null,
-      supportsRestart: Boolean(agent.restartUrl || effectiveBackendUrl(agent, config.backends.endpointByRef)),
-      supportsHealthCheck: Boolean(agent.healthUrl || effectiveBackendUrl(agent, config.backends.endpointByRef))
+      healthUrl: agent.healthCheck?.healthUrl ?? agent.healthUrl ?? null,
+      monitored: Boolean(agent.healthCheck?.enabled),
+      supportsRestart: Boolean(agent.healthCheck?.restartCommand || agent.restartUrl || effectiveBackendUrl(agent, config.backends.endpointByRef)),
+      supportsHealthCheck: Boolean(agent.healthCheck?.enabled || agent.healthUrl || effectiveBackendUrl(agent, config.backends.endpointByRef))
     }))
+  }));
+
+  app.get("/admin/agents/health", async () => ({
+    heartbeat: config.router.heartbeat,
+    agents: agentMonitor.listSnapshots()
   }));
 
   app.post("/admin/reload-config", async () => ({ reloaded: false, note: "Use process restart or inject a reloadable config provider." }));
@@ -165,6 +192,14 @@ export function createApp(config: RouterConfig) {
     if (!agent) {
       reply.code(404);
       return { ok: false, reason: "agent_not_found" };
+    }
+
+    if (agent.healthCheck?.enabled && agent.healthCheck.restartCommand) {
+      const result = await agentMonitor.restartAgent(agent.agentId);
+      if (!result.ok) {
+        reply.code(400);
+      }
+      return result;
     }
 
     const backend = backendByAgentId.get(agent.agentId);

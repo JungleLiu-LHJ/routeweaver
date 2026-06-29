@@ -3,6 +3,28 @@ import type { BackendRequest, BackendResponse } from "../domain/types.js";
 
 const HERMES_SUBMIT_TIMEOUT_MS = 3_000;
 
+function routerMediaType(inputType: BackendRequest["inputType"], media: BackendRequest["media"]): string | undefined {
+  const value = media?.format?.trim().toLowerCase();
+  if (value) {
+    if (value.includes("/")) {
+      return value;
+    }
+    if (inputType === "voice") {
+      return `audio/${value}`;
+    }
+    if (inputType === "image") {
+      return `image/${value}`;
+    }
+  }
+  if (inputType === "image") {
+    return "image/jpeg";
+  }
+  if (inputType === "voice") {
+    return "audio/mpeg";
+  }
+  return undefined;
+}
+
 export class HermesBackendAdapter extends CustomHttpBackendAdapter {
   readonly kind = "hermes";
 
@@ -32,6 +54,9 @@ export class HermesBackendAdapter extends CustomHttpBackendAdapter {
           message: request.message,
           inputType: request.inputType ?? "text",
           media: request.media,
+          messageType: request.inputType === "image" ? "photo" : request.inputType ?? "text",
+          mediaUrls: request.media?.url ? [request.media.url] : [],
+          mediaTypes: request.media?.url ? [routerMediaType(request.inputType, request.media)].filter(Boolean) : [],
           conversationId: request.conversation.conversationId,
           userId: request.conversation.userId,
           sourceChannel: request.conversation.channelId,

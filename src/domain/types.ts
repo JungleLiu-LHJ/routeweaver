@@ -19,6 +19,15 @@ export interface AgentProfile {
   listed: boolean;
   isMain?: boolean;
   riskLevel: "low" | "medium" | "high";
+  healthCheck?: {
+    enabled: boolean;
+    healthUrl?: string;
+    timeoutMs: number;
+    failureThreshold: number;
+    restartCommand?: string;
+    restartTimeoutMs: number;
+    restartCooldownMs?: number;
+  };
 }
 
 export interface RouterTurn {
