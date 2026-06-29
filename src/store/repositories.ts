@@ -121,6 +121,13 @@ export class InMemoryConversationRepository {
     state.activeAgentId = activeAgentId;
   }
 
+  async setActiveAgent(conversationId: string, activeAgentId: string): Promise<void> {
+    const state = this.conversations.get(conversationId);
+    if (state) {
+      state.activeAgentId = activeAgentId;
+    }
+  }
+
   async saveUserTurn(message: InboundMessage): Promise<void> {
     const state = await this.loadConversationState(message);
     state.recentTurns = [...state.recentTurns, { role: "user" as const, message: message.text, createdAt: nowIso() }].slice(-12);
@@ -193,6 +200,10 @@ export class SQLiteRouterRepository {
 
   async saveAssistantTurn(conversationId: string, agentId: string, message: string, activeAgentId: string): Promise<void> {
     this.insertTurn(conversationId, "assistant", message, agentId);
+    this.db.prepare("update conversations set active_agent_id = ?, updated_at = ? where id = ?").run(activeAgentId, Date.now(), conversationId);
+  }
+
+  async setActiveAgent(conversationId: string, activeAgentId: string): Promise<void> {
     this.db.prepare("update conversations set active_agent_id = ?, updated_at = ? where id = ?").run(activeAgentId, Date.now(), conversationId);
   }
 

@@ -482,7 +482,11 @@ export function createApp(config: RouterConfig) {
         status: response.taskStatus ?? "queued"
       });
     }
-    const content = response.content || (response.taskRef ? `任务已提交：${response.taskRef}` : "");
+    const content = response.content?.trim() ?? "";
+    if (!content) {
+      await repository.setActiveAgent(inbound.conversationId, activeAgentId);
+      return { accepted: true, taskRef: response.taskRef };
+    }
     await repository.saveAssistantTurn(inbound.conversationId, agent.agentId, content, activeAgentId);
     return outboundText(channel, content);
   }

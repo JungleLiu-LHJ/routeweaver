@@ -167,7 +167,8 @@ describe("wechat webhook integration", () => {
       url: "/webhooks/wechat",
       payload: wechat("/finance review budget", "m-hermes-1")
     });
-    expect(submitted.json()).toMatchObject({ content: "任务已提交：hermes-task-1" });
+    expect(submitted.json()).toMatchObject({ accepted: true, taskRef: "hermes-task-1" });
+    expect(submitted.json()).not.toHaveProperty("content");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://backend/finance");
